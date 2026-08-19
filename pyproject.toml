@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cjm-session-scratchpad-qt"
+version = "0.0.1"
+description = "The session scratchpad: composition seat v0 of the seat family (DEC 2a062aff + ea85eab7). A model-agnostic Qt surface for composing LLM session messages in markdown — session-key file naming, one-key edit/rendered toggle with position stability, autosave with atomic writes, wrap-selection formatting on the KeymapRegistry lane. Designed for accretion; born on-graph."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+authors = [{name = "Christian J. Mills", email = "9126128+cj-mills@users.noreply.github.com"}]
+classifiers = ["Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
+dependencies = ['cjm-substrate-qt-kit>=0.0.2', 'PySide6']
+
+[project.urls]
+Repository = "https://github.com/cj-mills/cjm-session-scratchpad-qt"
+
+[project.scripts]
+cjm-session-scratchpad-qt = "cjm_session_scratchpad_qt.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cjm_session_scratchpad_qt*"]
