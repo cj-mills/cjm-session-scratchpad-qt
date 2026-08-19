@@ -68,6 +68,14 @@ def resolve_target(cwd: Path, arg: Optional[str] = None,
         return Target(fallback,
                       banner="no .cjm/current-session pointer found — opened most recent scratchpad")
     path = directory / f"{key}.md"
+    if not path.exists():
+        # Transition bridge: scratchpads born before the Qt app carry a
+        # prefixed name (cc-scratchpad-<project>-<key>.md); prefer the
+        # session's existing file over minting a duplicate blank.
+        legacy = sorted(directory.glob(f"*{key}.md"))
+        if legacy:
+            return Target(legacy[0],
+                          banner=f"legacy-named session file: {legacy[0].name}")
     minted = parse_key_time(key)
     if minted is not None and minted.date() != (today or date.today()):
         return Target(path, banner=f"session key minted {minted:%Y-%m-%d %H:%M} — pointer may be stale")

@@ -128,9 +128,10 @@ class _Renderer:
         # Qt renders bare <pre> unwrapped (long lines force a horizontal
         # scroll) and paints background per-character; a one-cell table gives
         # the full-width block box, pre-wrap keeps prose-bearing fences on
-        # screen (field finding 2026-08-19).
-        out.append(f'<table width="100%" cellspacing="0" cellpadding="6" '
-                   f'bgcolor="{self.raised}"><tr><td bgcolor="{self.raised}">'
+        # screen, and the transparent cellspacing gap keeps CONSECUTIVE
+        # fences reading as separate boxes (field findings 2026-08-19).
+        out.append(f'<table width="100%" cellspacing="4" cellpadding="6">'
+                   f'<tr><td bgcolor="{self.raised}">'
                    f"<pre style=\"white-space:pre-wrap; "
                    f"font-family:'{self.mono}'; font-size:{self.mono_size}pt;\">"
                    f"{self._anchor(start)}{escaped}</pre></td></tr></table>")

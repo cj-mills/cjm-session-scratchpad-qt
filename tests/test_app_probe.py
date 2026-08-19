@@ -102,6 +102,16 @@ def test_external_change_dirty_buffer_holds(app, tmp_path):
     assert not w._hold
 
 
+def test_external_change_in_read_view_rerenders(app, tmp_path):
+    w = make(app, tmp_path, text="# old headline")
+    w.toggle_view()
+    assert "old headline" in w.browser.toPlainText()
+    w.path.write_text("# new headline")
+    w._on_file_changed(str(w.path))
+    assert w.stack.currentWidget() is w.browser
+    assert "new headline" in w.browser.toPlainText()
+
+
 def test_reload_from_disk_takes_disk(app, tmp_path):
     w = make(app, tmp_path, text="v1")
     w.editor.setPlainText("mine")

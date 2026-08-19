@@ -272,6 +272,8 @@ class ScratchpadWindow(QMainWindow):
         self._hold = False
         self.clear_banner()
         self.save_label.setText("reloaded from disk")
+        if self.stack.currentWidget() is self.browser:
+            self._to_render()  # a READ view must show the reloaded content, not the stale render
 
     def _rewatch(self) -> None:
         """os.replace swaps the inode, which can drop the watch — re-arm."""

@@ -52,6 +52,25 @@ def test_resolve_stale_key_banners(tmp_path):
     assert "stale" in t.banner
 
 
+def test_resolve_prefers_legacy_named_session_file(tmp_path):
+    make_pointer(tmp_path)
+    legacy = tmp_path / f"cc-scratchpad-substrate-{KEY}.md"
+    legacy.write_text("pre-app scratchpad")
+    t = resolve_target(tmp_path, directory=tmp_path, today=date(2026, 8, 19))
+    assert t.path == legacy
+    assert "legacy-named" in t.banner
+
+
+def test_resolve_ignores_legacy_when_exact_exists(tmp_path):
+    make_pointer(tmp_path)
+    (tmp_path / f"cc-scratchpad-substrate-{KEY}.md").write_text("old era")
+    exact = tmp_path / f"{KEY}.md"
+    exact.write_text("new era")
+    t = resolve_target(tmp_path, directory=tmp_path, today=date(2026, 8, 19))
+    assert t.path == exact
+    assert t.banner is None
+
+
 def test_absent_pointer_opens_most_recent_with_banner(tmp_path):
     old = tmp_path / "2026-08-01_09-00-00.md"
     new = tmp_path / "2026-08-15_09-00-00.md"
