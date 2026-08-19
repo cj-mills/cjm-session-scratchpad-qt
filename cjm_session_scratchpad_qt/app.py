@@ -97,6 +97,7 @@ class ScratchpadWindow(QMainWindow):
         self._hold = False
         self._loading = False
         self._bound = False  # no save-before-load until a file is truly bound
+        self._measure_capped = True  # the width option, never a lock
         self._anchor_lines: List[int] = []
         self._block_lines: List[Tuple[int, int]] = []
 
@@ -108,7 +109,7 @@ class ScratchpadWindow(QMainWindow):
         row = QHBoxLayout(editor_row)
         row.setContentsMargins(0, 0, 0, 0)
         row.addStretch(1)
-        row.addWidget(self.editor)
+        row.addWidget(self.editor, 100)  # out-stretch the sides: grow to the measure cap, then center
         row.addStretch(1)
         self.editor_container = editor_row
         self.browser = QTextBrowser()
@@ -182,12 +183,15 @@ class ScratchpadWindow(QMainWindow):
         add("wrap-bold", "Bold selection", "Ctrl+B", lambda: self.wrap("**"))
         add("wrap-italic", "Italic selection", "Ctrl+I", lambda: self.wrap("*"))
         add("wrap-code", "Inline-code selection", "Ctrl+`", lambda: self.wrap("`"))
+        add("toggle-measure", "Toggle edit measure cap (narrow/wide)", "Ctrl+Shift+M",
+            self.toggle_measure)
         add("open-file", "Open file…", "Ctrl+O", self.open_dialog)
         add("quit", "Quit", "Ctrl+Q", self.close)
 
     def _build_menus(self) -> None:
         menus = {"File": ("open-file", "save-now", "reload-disk", "quit"),
-                 "View": ("toggle-view", "find", "find-next", "find-previous"),
+                 "View": ("toggle-view", "toggle-measure", "find", "find-next",
+                          "find-previous"),
                  "Format": ("wrap-bold", "wrap-italic", "wrap-code")}
         for title, verbs in menus.items():
             menu = self.menuBar().addMenu(title)
@@ -359,6 +363,12 @@ class ScratchpadWindow(QMainWindow):
         after.setPosition(result.cursor, QTextCursor.MoveMode.KeepAnchor)
         self.editor.setTextCursor(after)
 
+    def toggle_measure(self) -> None:
+        """The width option, not a lock: flip the edit pane between the
+        measure cap and full width (first live-session filing, 2026-08-19)."""
+        self._measure_capped = not self._measure_capped
+        self.refresh_theme()
+
     # ----- find ----------------------------------------------------------
 
     def open_find(self) -> None:
@@ -398,7 +408,8 @@ class ScratchpadWindow(QMainWindow):
         width = metrics.averageCharWidth() * int(theme.get("measure") or 68)
         chrome = (2 * int(self.editor.document().documentMargin())
                   + self.editor.verticalScrollBar().sizeHint().width() + 8)
-        self.editor.setMaximumWidth(width + chrome)
+        self.editor.setMaximumWidth(width + chrome if self._measure_capped
+                                    else 16777215)
         self.editor.setTabStopDistance(4 * metrics.horizontalAdvance(" "))
         if self.stack.currentWidget() is self.browser:
             self._to_render()
