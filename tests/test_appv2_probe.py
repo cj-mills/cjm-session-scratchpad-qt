@@ -69,6 +69,10 @@ class FakeSession:
                       "new_messages": []})
         return f
 
+    def export_markdown(self, config=None):
+        return {"text": f"# Session scratchpad — {KEY}\n\nexport body\n",
+                "messages": len(self.messages), "parts": 0}
+
 
 @pytest.fixture(scope="module")
 def app():
@@ -197,6 +201,14 @@ def test_lane_and_raw_toggles_change_document(app, tmp_path):
     w.cycle_lane()  # -> all
     w.toggle_raw()
     assert "**strong**" in w.browser.toPlainText()
+
+
+def test_export_md_writes_projection_beside_scratchpads(app, tmp_path):
+    _s, w = make(app, tmp_path)
+    w.export_md()
+    out = tmp_path / f"{KEY}.export.md"
+    assert out.exists()
+    assert out.read_text().startswith(f"# Session scratchpad — {KEY}")
 
 
 def test_dup_lane_toggles_visibility(app, tmp_path):

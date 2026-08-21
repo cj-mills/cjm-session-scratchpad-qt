@@ -23,6 +23,7 @@ from cjm_context_graph_projection.pull_transcript import (derive_message, edit_m
                                                           MESSAGE_SOURCE_COMPOSER,
                                                           mint_pulled_messages, pull_transcript)
 from cjm_context_graph_projection.runtime import DEFAULT_MANIFESTS, open_graph
+from cjm_context_graph_projection.scratchpad_export import export_session_markdown
 from cjm_substrate_qt_kit.loopthread import LoopThreadSession
 
 # Per-actor stamping (DEC c7c6ce5e; user:workbench is the precedent).
@@ -151,6 +152,12 @@ class ScratchpadSession(LoopThreadSession):
                                              "part_uuids": list(part_uuids),
                                              "actor": ACTOR})
         return res
+
+    def export_markdown(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """The exporter lens in-process (item 5ab24c57): the session's message
+        graph as portable markdown. Read-only — journals nothing; an edited
+        export is a fork, never a sync."""
+        return self.call(export_session_markdown(self.gx, self.session_key, config))
 
     # ---- the pull path (watcher-primary; gesture = backfill) -------------
 

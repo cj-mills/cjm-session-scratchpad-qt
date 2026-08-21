@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QApplication, QCompleter, QHBoxLayout, QLabel, QL
                                QVBoxLayout, QWidget)
 
 from .app import mono_family
+from .files import atomic_write
 from .graph import ScratchpadSession
 from .manifest import (compose_text, load_pending, manifest_path, PendingSend, reconcile,
                        save_pending)
@@ -195,6 +196,8 @@ class GraphScratchpadWindow(QMainWindow):
         add("compose-send", "Compose-send selected parts → clipboard", "Ctrl+Shift+Return",
             self.compose_send)
         add("pull-now", "Pull transcript now (backfill gesture)", "F5", self.pull_now)
+        add("export-md", "Export session → .md (one projection among N)", "Ctrl+E",
+            self.export_md)
         add("toggle-raw", "Toggle raw/rendered timeline", "Ctrl+/", self.toggle_raw)
         add("cycle-lane", "Cycle timeline lane (all/composition/transcript)", "Ctrl+L",
             self.cycle_lane)
@@ -215,7 +218,7 @@ class GraphScratchpadWindow(QMainWindow):
         add("quit", "Quit", "Ctrl+Q", self.close)
 
     def _build_menus(self) -> None:
-        menus = {"File": ("pull-now", "quit"),
+        menus = {"File": ("pull-now", "export-md", "quit"),
                  "View": ("toggle-raw", "cycle-lane", "toggle-dup-lane", "find",
                           "find-next", "find-previous"),
                  "Format": ("wrap-bold", "wrap-italic", "wrap-code", "fence",
@@ -426,6 +429,19 @@ class GraphScratchpadWindow(QMainWindow):
             self.pull_label.setText("pulling…")
             self._pull_future = self.session.pull_async(
                 str(self.transcript_dir), require_signal=self.require_signal)
+
+    def export_md(self) -> None:
+        """The exporter lens (5ab24c57): write the session's .md projection
+        next to the file-rung scratchpads. One-way — an edited export is a
+        fork, never a sync."""
+        res = self.session.export_markdown()
+        if res.get("error"):
+            self.show_banner(str(res["error"]), role="warn")
+            return
+        path = self.directory / f"{self.session.session_key}.export.md"
+        atomic_write(path, res["text"])
+        self.show_status(f"exported {res['messages']} message(s) + "
+                         f"{res['parts']} part(s) → {path}")
 
     # ----- formatting ---------------------------------------------------
 
