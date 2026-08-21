@@ -27,12 +27,20 @@ class Target:
 
 def find_session_key(start: Path) -> Optional[str]:
     """Walk up from `start` for the nearest `.cjm/current-session` pointer."""
+    found = find_session_root(start)
+    return found[0] if found else None
+
+
+def find_session_root(start: Path) -> Optional[tuple]:
+    """The nearest pointer AND the project directory that owns it:
+    (session_key, project_root). The root is what derives the harness
+    transcript dir (graph rung) — the pointer's home IS the project."""
     for directory in [start, *start.parents]:
         pointer = directory / ".cjm" / "current-session"
         if pointer.is_file():
             key = pointer.read_text().strip()
             if key:
-                return key
+                return key, directory
     return None
 
 
