@@ -94,6 +94,7 @@ class GraphScratchpadWindow(QMainWindow):
         self._selected: List[str] = []   # part uuids, selection (= send) order
         self._expanded: Set[int] = set()
         self._editing: Optional[str] = None
+        self._stash = ""  # in-flight draft held across an edit-mode detour (drive call-out 2026-08-21)
         self._last_part_uuid: Optional[str] = None
         self._pull_future = None
         self._timeline_future = None
@@ -361,6 +362,7 @@ class GraphScratchpadWindow(QMainWindow):
                 return
             self.show_status(f"part {self._editing[:8]} edited (journaled)")
             self._editing = None
+            self._restore_stash()
         else:
             res = self.session.commit_part(text, prev_uuid=self._last_part_uuid)
             if res.get("error"):
@@ -368,7 +370,7 @@ class GraphScratchpadWindow(QMainWindow):
                 return
             self._last_part_uuid = res["payload"]["uuid"]
             self.show_status(f"part committed → {res['payload']['uuid'][:8]}")
-        self.composer.clear()
+            self.composer.clear()
         self.request_timeline()
 
     def start_edit(self, part_uuid: str) -> None:
@@ -376,6 +378,10 @@ class GraphScratchpadWindow(QMainWindow):
                       and e.editable), None)
         if entry is None:
             return
+        if self._editing is None:
+            # An edit click must never eat the in-flight draft (drive call-out
+            # 2026-08-21) — stash it, restore when the edit lands or cancels.
+            self._stash = self.composer.toPlainText()
         self._editing = part_uuid
         self.composer.setPlainText(entry.text)
         self.composer.setFocus()
@@ -385,8 +391,16 @@ class GraphScratchpadWindow(QMainWindow):
         if self._editing is None:
             return
         self._editing = None
-        self.composer.clear()
+        self._restore_stash()
         self._render_timeline()
+
+    def _restore_stash(self) -> None:
+        """Hand the held draft back to the composer (caret at the end)."""
+        self.composer.setPlainText(self._stash)
+        self._stash = ""
+        cursor = self.composer.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.composer.setTextCursor(cursor)
 
     def compose_send(self) -> None:
         """Concatenate the selected parts → clipboard + pending-send manifest

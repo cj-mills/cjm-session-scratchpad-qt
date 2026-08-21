@@ -162,6 +162,26 @@ def test_startup_reconciles_prior_run_manifest(app, tmp_path):
     assert s.sends == [("u1", ["c1"])]
 
 
+def test_edit_detour_preserves_in_flight_draft(app, tmp_path):
+    # Drive call-out 2026-08-21: clicking edit on a part wiped the draft being
+    # composed. The stash holds it across the detour — both exit doors.
+    s, w = make(app, tmp_path)
+    w.composer.setPlainText("committed part")
+    w.commit_part()
+    w._resolve_futures()
+    part_uuid = s.committed[0]["uuid"]
+    w.composer.setPlainText("half-written next part")
+    w._on_link(QUrl(f"edit://{part_uuid}"))          # detour into edit mode
+    assert w.composer.toPlainText() == "committed part"
+    w.cancel_edit()                                   # exit door 1: cancel
+    assert w.composer.toPlainText() == "half-written next part"
+    w._on_link(QUrl(f"edit://{part_uuid}"))
+    w.composer.setPlainText("committed part, revised")
+    w.commit_part()                                   # exit door 2: edit lands
+    assert s.edited == [(part_uuid, "committed part, revised")]
+    assert w.composer.toPlainText() == "half-written next part"
+
+
 def test_copy_link_puts_node_id_on_clipboard(app, tmp_path):
     _s, w = make(app, tmp_path)
     w._on_link(QUrl("copy://n1"))
