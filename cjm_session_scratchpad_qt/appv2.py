@@ -12,6 +12,8 @@ that pull-time reconciliation resolves into DERIVED_FROM edges. A QTimer
 drives the transcript watcher (sleep-first mtime poll -> in-process pull;
 quiet polls journal nothing). Every gesture is a KeymapRegistry verb."""
 
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
@@ -20,9 +22,10 @@ from cjm_substrate_qt_kit.keymap import KeymapRegistry
 from cjm_substrate_qt_kit.theme import current_theme, make_font, style_text_pane
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QFontMetrics, QTextCursor
-from PySide6.QtWidgets import (QApplication, QCompleter, QHBoxLayout, QLabel, QLineEdit,
-                               QMainWindow, QPlainTextEdit, QSplitter, QStatusBar, QTextBrowser,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCompleter, QDialog, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+                               QPlainTextEdit, QSplitter, QStatusBar, QTextBrowser, QVBoxLayout,
+                               QWidget)
 
 from .app import mono_family
 from .files import atomic_write
@@ -36,6 +39,12 @@ from .watcher import DirWatch
 
 WATCH_MS = 2500      # transcript poll cadence (sleep-first; a tick is one dir scan)
 FUTURE_MS = 150      # loop-thread future resolution cadence
+
+# The start-ritual boot prompt the mint gesture puts on the clipboard; its tail
+# carries the transcript-mapping signal (prefix-matched by
+# cjm_harness_transcripts.mapping.MINT_SIGNAL).
+MINT_BOOT_PROMPT = ("Resume. Orient from the resident surface; session rituals "
+                    "per the resident notes. New session minted in-scratchpad.")
 
 FENCE_LANGUAGES = ["python", "bash", "json", "yaml", "toml", "markdown", "html",
                    "css", "javascript", "typescript", "sql", "diff", "text",
@@ -78,17 +87,79 @@ class LanguageBar(QWidget):
         super().keyPressEvent(event)
 
 
+class SessionPickerDialog(QDialog):
+    """The open-session gesture's chooser: filterable Session list, newest
+    first, live/open spines annotated; Enter or double-click opens. The graph
+    rung's answer to the v1 file rung's open-any-scratchpad."""
+
+    def __init__(self, sessions: List[Dict], current: str, live: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Open session")
+        self.chosen: Optional[str] = None
+        self._sessions = sessions
+        self._current = current
+        self._live = live
+        column = QVBoxLayout(self)
+        self.filter = QLineEdit(self)
+        self.filter.setPlaceholderText("filter by key or title…")
+        self.filter.textChanged.connect(self._refill)
+        self.filter.returnPressed.connect(self._choose_current)
+        self.listing = QListWidget(self)
+        self.listing.itemActivated.connect(self._on_activated)
+        column.addWidget(self.filter)
+        column.addWidget(self.listing, 1)
+        self._refill()
+        self.filter.setFocus()
+        self.resize(720, 480)
+
+    def _refill(self) -> None:
+        needle = self.filter.text().strip().lower()
+        self.listing.clear()
+        for s in self._sessions:
+            label = f"{s['key']}  —  {s['title']}" if s.get("title") else s["key"]
+            if needle and needle not in label.lower():
+                continue
+            marks = [m for m, hit in (("live", s["key"] == self._live),
+                                      ("open", s["key"] == self._current)) if hit]
+            if marks:
+                label += f"   [{' · '.join(marks)}]"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, s["key"])
+            self.listing.addItem(item)
+        if self.listing.count():
+            self.listing.setCurrentRow(0)
+
+    def _choose_current(self) -> None:
+        item = self.listing.currentItem()
+        if item is not None:
+            self._on_activated(item)
+
+    def _on_activated(self, item) -> None:
+        self.chosen = item.data(Qt.ItemDataRole.UserRole)
+        self.accept()
+
+    def keyPressEvent(self, event) -> None:
+        # Arrow keys steer the list while the filter keeps focus.
+        if event.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+            self.listing.keyPressEvent(event)
+            return
+        super().keyPressEvent(event)
+
+
 class GraphScratchpadWindow(QMainWindow):
     """One session spine behind a timeline + part-composer."""
 
     def __init__(self, session: ScratchpadSession, transcript_dir: Path,
                  directory: Path, banner: Optional[str] = None,
-                 require_signal: bool = True):
+                 require_signal: bool = True, live_key: Optional[str] = None):
         super().__init__()
         self.session = session
         self.transcript_dir = Path(transcript_dir)
         self.directory = Path(directory)
         self.require_signal = require_signal
+        # The LIVE sitting's key: the watcher only spends pulls on it, and
+        # browsing another spine never re-stamps journal attribution.
+        self._live_key = live_key or session.session_key
         self._entries: List[TimelineEntry] = []
         self._raw = False
         self._lane = "all"
@@ -146,7 +217,8 @@ class GraphScratchpadWindow(QMainWindow):
         self.key_label.setProperty("role", "content-dim")
         self.count_label = QLabel("")
         self.count_label.setProperty("role", "content-dim")
-        self.pull_label = QLabel("watching…")
+        self.pull_label = QLabel("watching…" if self.is_live else
+                                 "browsing — F5 pulls if a transcript remains")
         self.pull_label.setProperty("role", "content-dim")
         self.mode_label = QLabel("RENDERED · all")
         bar = QStatusBar()
@@ -196,6 +268,10 @@ class GraphScratchpadWindow(QMainWindow):
         add("compose-send", "Compose-send selected parts → clipboard", "Ctrl+Shift+Return",
             self.compose_send)
         add("pull-now", "Pull transcript now (backfill gesture)", "F5", self.pull_now)
+        add("open-session", "Open session… (any spine on this graph)", "Ctrl+O",
+            self.open_session_picker)
+        add("mint-session", "Mint new session (start ritual)", "Ctrl+Shift+N",
+            self.mint_session)
         add("export-md", "Export session → .md (one projection among N)", "Ctrl+E",
             self.export_md)
         add("toggle-raw", "Toggle raw/rendered timeline", "Ctrl+/", self.toggle_raw)
@@ -218,7 +294,8 @@ class GraphScratchpadWindow(QMainWindow):
         add("quit", "Quit", "Ctrl+Q", self.close)
 
     def _build_menus(self) -> None:
-        menus = {"File": ("pull-now", "export-md", "quit"),
+        menus = {"File": ("mint-session", "open-session", "pull-now", "export-md",
+                          "quit"),
                  "View": ("toggle-raw", "cycle-lane", "toggle-dup-lane", "find",
                           "find-next", "find-previous"),
                  "Format": ("wrap-bold", "wrap-italic", "wrap-code", "fence",
@@ -262,7 +339,14 @@ class GraphScratchpadWindow(QMainWindow):
 
     # ----- watcher + futures ---------------------------------------------
 
+    @property
+    def is_live(self) -> bool:
+        """Viewing the live sitting's spine? (Watcher + label gate.)"""
+        return self.session.session_key == self._live_key
+
     def _on_watch_tick(self) -> None:
+        if not self.is_live:
+            return  # a past spine's transcript never grows; F5 stays available
         if self._pull_future is None and self._watch.changed():
             self._pull_future = self.session.pull_async(
                 str(self.transcript_dir), require_signal=self.require_signal)
@@ -422,6 +506,85 @@ class GraphScratchpadWindow(QMainWindow):
                          f"manifest recorded, reconciles at pull")
         self._selected = []
         self._render_timeline()
+
+    def mint_session(self) -> None:
+        """Ctrl+Shift+N: mint + register a new session spine, point
+        .cjm/current-session at it, adopt it, and put the boot prompt on the
+        clipboard — the workbench Shift+S start ritual, scratchpad-shaped."""
+        try:
+            # Key-repeat/double-tap debounce (workbench field find 2026-08-20):
+            # a just-minted live key means this press is a repeat, not a sitting.
+            age = time.time() - datetime.strptime(
+                self._live_key, "%Y-%m-%d_%H-%M-%S").timestamp()
+            if 0 <= age < 10.0:
+                self.show_status(f"session {self._live_key} just minted — ignored")
+                return
+        except ValueError:
+            pass  # non-timestamp live key (manual/legacy) — no debounce basis
+        key = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        confirm = QMessageBox.question(
+            self, "Mint new session",
+            f"Mint session {key} and adopt it as the live sitting?\n\n"
+            f"The .cjm/current-session pointer moves and the boot prompt "
+            f"lands on the clipboard.")
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        prev_live = self._live_key
+        # Adopt BEFORE the journaled write: the registration op must stamp to
+        # its OWN session, never the outgoing one (S-test find 2026-08-14).
+        self.rebind_spine(key, adopt=True)
+        res = self.session.register_session(key, started_at=time.time())
+        if res.get("error"):
+            self.rebind_spine(prev_live, adopt=True)
+            self.show_banner(f"session mint failed: {res['error']}", role="warn")
+            return
+        pointer = self.session.write_session_pointer(key)
+        QApplication.clipboard().setText(MINT_BOOT_PROMPT)
+        self.show_status(
+            f"session {key} minted + adopted — boot prompt on clipboard"
+            + ("" if pointer else " · ⚠ no journal: pointer NOT written"))
+
+    def open_session_picker(self) -> None:
+        """Ctrl+O: choose any Session spine on the graph (recent first)."""
+        try:
+            sessions = self.session.list_sessions()
+        except Exception as exc:  # surfaced, never swallowed
+            self.show_banner(f"session list failed: {exc}", role="warn")
+            return
+        dialog = SessionPickerDialog(sessions, current=self.session.session_key,
+                                     live=self._live_key, parent=self)
+        if dialog.exec() and dialog.chosen:
+            self.rebind_spine(dialog.chosen)
+
+    def rebind_spine(self, key: str, *, adopt: bool = False) -> None:
+        """Swap the seat onto another Session spine: per-spine view state
+        resets, the pending-send manifest follows the key, the watcher gates
+        itself on is_live (journal attribution stays with the live sitting —
+        composing onto a past spine is legitimate retro authoring). adopt=True
+        (the mint gesture) makes the target the LIVE spine: CJM_SESSION
+        re-stamps and the watcher follows."""
+        if key == self.session.session_key and not adopt:
+            return
+        if self._editing:
+            self.cancel_edit()   # the stash hands any in-flight draft back
+        self._selected = []
+        self._expanded = set()
+        self._last_part_uuid = None
+        self._pull_future = None      # an in-flight pull's result is stale now
+        self._timeline_future = None
+        self._timeline_dirty = False
+        self.session.rebind(key, adopt=adopt)
+        if adopt:
+            self._live_key = key
+        self._manifest_path = manifest_path(self.directory, key)
+        self._pending = load_pending(self._manifest_path)
+        self.key_label.setText(key + ("" if self.is_live else "  (past)"))
+        self.setWindowTitle(f"{key} — session scratchpad (graph)")
+        self.pull_label.setText("watching…" if self.is_live else
+                                "browsing — F5 pulls if a transcript remains")
+        self._load_initial()
+        self.show_status(f"opened session {key}" + ("" if self.is_live else
+                         " — past spine: composer live, watcher off"))
 
     def pull_now(self) -> None:
         """The backfill gesture (watcher stays primary)."""

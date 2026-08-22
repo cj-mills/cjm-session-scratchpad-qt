@@ -39,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--transcript-dir", default=None,
                    help="Harness transcript dir (default: derived from the "
                         "session pointer's project root)")
+    p.add_argument("--session", default=None,
+                   help="Open this session KEY's spine (graph rung) instead of "
+                        "the live pointer session — past-spine browsing; journal "
+                        "attribution stays with the live session")
     p.add_argument("--any-boot", action="store_true",
                    help="Match transcripts without the minted-in-workbench boot "
                         "signal (resumed / manually booted sessions)")
@@ -53,8 +57,10 @@ def main() -> int:
 
     if args.graph_db_path and not args.path:
         found = find_session_root(Path.cwd())
-        if found:
-            key, root = found
+        if found or args.session:
+            # No pointer + explicit --session: that key serves as the live key
+            # too (degenerate browse-only boot).
+            key, root = found if found else (args.session, Path.cwd())
             # Deferred: the graph stack import is the graph rung's cost alone.
             from .appv2 import GraphScratchpadWindow
             from .graph import default_transcript_dir, ScratchpadSession
@@ -64,11 +70,13 @@ def main() -> int:
                 args.graph_db_path, key, manifests_dir=args.manifests_dir,
                 journal_paths=[args.journal_path] if args.journal_path else [])
             session.start()
+            if args.session and args.session != key:
+                session.rebind(args.session)  # browse target; live key still stamps
             window = GraphScratchpadWindow(
                 session, transcript_dir=transcript_dir, directory=directory,
                 banner=None if args.journal_path else
                 "no --journal-path — writes will NOT survive a rebuild",
-                require_signal=not args.any_boot)
+                require_signal=not args.any_boot, live_key=key)
             window.show()
             try:
                 return app.exec()

@@ -5,6 +5,7 @@ over a fake session (the graph seam itself is field-proven live)."""
 import os
 import uuid as uuidlib
 from concurrent.futures import Future
+from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -34,6 +35,29 @@ class FakeSession:
         self.committed = []
         self.edited = []
         self.sends = []
+        self.by_key = {}     # optional per-spine canned messages (rebind swaps)
+        self.adopted = []    # adopt=True rebind calls (mint gesture only)
+        self.registered = []  # register_session calls (key, started_at, title)
+        self.pointer = None   # last write_session_pointer key
+
+    def register_session(self, key, *, started_at=None, title=None):
+        self.registered.append((key, started_at, title))
+        return {"written": True}
+
+    def write_session_pointer(self, key):
+        self.pointer = key
+        return "/fake/.cjm/current-session"
+
+    def rebind(self, session_key, *, adopt=False):
+        self.session_key = session_key
+        if adopt:
+            self.adopted.append(session_key)
+        if session_key in self.by_key:
+            self.messages = self.by_key[session_key]
+
+    def list_sessions(self):
+        keys = {self.session_key, *self.by_key}
+        return [{"key": k, "title": ""} for k in sorted(keys, reverse=True)]
 
     def timeline_data(self):
         return self.messages, self.next_pairs, self.derived
@@ -216,3 +240,92 @@ def test_dup_lane_toggles_visibility(app, tmp_path):
     assert w.dup_browser.isHidden()
     w.toggle_dup()
     assert not w.dup_browser.isHidden()
+
+
+def test_open_past_session_rebinds_and_gates_watcher(app, tmp_path):
+    # Item 4 (sitting 3): opening a past spine swaps the timeline, marks the
+    # seat non-live (watcher spends nothing), and returning restores watching.
+    s, w = make(app, tmp_path)
+    assert w.is_live
+    past = "2026-08-20_17-05-20"
+    s.by_key = {past: [msg("p1", "x1", "2026-08-20T18:00:00.000Z", text="yesterday-msg")],
+                KEY: list(s.messages)}
+    w.rebind_spine(past)
+    assert not w.is_live
+    assert s.session_key == past
+    assert s.adopted == []                      # browsing never re-stamps attribution
+    assert "yesterday-msg" in w.browser.toPlainText()
+    assert "(past)" in w.key_label.text()
+    w._on_watch_tick()
+    assert w._pull_future is None               # past spine: watcher off
+    w.rebind_spine(KEY)
+    assert w.is_live and "(past)" not in w.key_label.text()
+
+
+def test_session_picker_filters_and_chooses(app, tmp_path):
+    from cjm_session_scratchpad_qt.appv2 import SessionPickerDialog
+    sessions = [{"key": "2026-08-21_20-46-05", "title": "sitting 3"},
+                {"key": "2026-08-21_11-26-36", "title": "sitting 2"}]
+    d = SessionPickerDialog(sessions, current="2026-08-21_20-46-05",
+                            live="2026-08-21_20-46-05")
+    assert d.listing.count() == 2
+    assert "[live · open]" in d.listing.item(0).text()
+    d.filter.setText("sitting 2")
+    assert d.listing.count() == 1
+    d._choose_current()
+    assert d.chosen == "2026-08-21_11-26-36"
+
+
+def test_scratchpad_session_rebind_attribution(monkeypatch):
+    # The real ScratchpadSession.rebind: browsing keeps CJM_SESSION on the
+    # live sitting; adopt=True (mint gesture) re-stamps it. No graph needed —
+    # rebind is pure key/env state.
+    from cjm_session_scratchpad_qt.graph import ScratchpadSession
+    sess = ScratchpadSession("unused.db", "live-key")
+    monkeypatch.setenv("CJM_SESSION", "live-key")
+    sess.rebind("past-key")
+    assert sess.session_key == "past-key"
+    assert os.environ["CJM_SESSION"] == "live-key"
+    sess.rebind("new-key", adopt=True)
+    assert os.environ["CJM_SESSION"] == "new-key"
+
+
+def test_mint_session_registers_adopts_and_arms_clipboard(app, tmp_path, monkeypatch):
+    # Item 2 (sitting 3): the mint gesture registers a fresh spine, moves the
+    # live key + pointer, adopts (attribution re-stamp recorded), and puts the
+    # signal-bearing boot prompt on the clipboard.
+    from cjm_session_scratchpad_qt import appv2
+    s, w = make(app, tmp_path)
+    monkeypatch.setattr(
+        appv2.QMessageBox, "question",
+        staticmethod(lambda *a, **k: appv2.QMessageBox.StandardButton.Yes))
+    w.mint_session()
+    assert len(s.registered) == 1
+    key = s.registered[0][0]
+    assert s.registered[0][1] is not None            # started_at rides the op
+    assert w._live_key == key and s.session_key == key and w.is_live
+    assert s.adopted == [key]                        # CJM_SESSION re-stamp path
+    assert s.pointer == key
+    boot = QApplication.clipboard().text()
+    assert "New session minted in-scratchpad" in boot
+    from cjm_harness_transcripts.mapping import MINT_SIGNAL
+    assert MINT_SIGNAL in boot                       # transcript mapping will match
+
+
+def test_mint_session_debounces_and_respects_decline(app, tmp_path, monkeypatch):
+    from cjm_session_scratchpad_qt import appv2
+    s, w = make(app, tmp_path)
+    # Decline path: the dialog says no, nothing moves.
+    monkeypatch.setattr(
+        appv2.QMessageBox, "question",
+        staticmethod(lambda *a, **k: appv2.QMessageBox.StandardButton.No))
+    w.mint_session()
+    assert s.registered == [] and s.adopted == []
+    # Debounce path (workbench field find 2026-08-20): a just-minted live key
+    # means a repeat press, not a new sitting.
+    monkeypatch.setattr(
+        appv2.QMessageBox, "question",
+        staticmethod(lambda *a, **k: appv2.QMessageBox.StandardButton.Yes))
+    w._live_key = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    w.mint_session()
+    assert s.registered == []

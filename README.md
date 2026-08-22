@@ -32,6 +32,7 @@ The session scratchpad — composition seat v0 of the seat family (DECs 2a062aff
 
 - `GraphScratchpadWindow` _class_ — One session spine behind a timeline + part-composer.
 - `LanguageBar` _class_ — The fence-language mini-bar: a completer-backed field; Enter applies,
+- `SessionPickerDialog` _class_ — The open-session gesture's chooser: filterable Session list, newest
 
 ### `cjm_session_scratchpad_qt.cli`
 
@@ -89,6 +90,7 @@ The session scratchpad — composition seat v0 of the seat family (DECs 2a062aff
 - `card_html` _function_ — One message card: anchored header line (identity + affordances) +
 - `lane_filter` _function_ — The lane views: composition = composer-born, transcript = pulled.
 - `linkify_ids` _function_ — Wrap full node/source ids appearing as text in jump:// links —
+- `test_clock_renders_local_time` _function_
 
 ### `cjm_session_scratchpad_qt.watcher`
 

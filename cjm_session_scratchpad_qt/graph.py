@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from cjm_context_graph_layer.ops import graph_task
 from cjm_context_graph_primitives.journal import append_write
 from cjm_context_graph_primitives.query import EdgeQuery, PropertyPredicate
+from cjm_context_graph_projection import write as write_verbs
 from cjm_context_graph_projection.factlayer import load_label_where
 from cjm_context_graph_projection.pull_transcript import (derive_message, edit_message,
                                                           MESSAGE_SOURCE_COMPOSER,
@@ -76,6 +77,15 @@ class ScratchpadSession(LoopThreadSession):
         os.environ["CJM_SESSION"] = self.session_key  # journal appends stamp this key
         self.gx = self.call(self._open())
 
+    def rebind(self, session_key: str, *, adopt: bool = False) -> None:
+        """Retarget the spine this seat reads/writes (the open-past-session
+        gesture): one open graph, a different Session spine. Browsing leaves
+        CJM_SESSION alone — journal stamping keeps attributing writes to the
+        LIVE sitting; adopt=True (the mint-new-session gesture) re-stamps."""
+        self.session_key = session_key
+        if adopt:
+            os.environ["CJM_SESSION"] = session_key
+
     # ---- reads (ambient — no accounting rows at UI cadence) --------------
 
     async def _timeline_data(self) -> Tuple[List[Dict], List[Tuple[str, str]], List[Tuple[str, str]]]:
@@ -113,6 +123,48 @@ class ScratchpadSession(LoopThreadSession):
         """Non-blocking read for watcher-cadence refresh — the Qt shell must
         never block its paint thread on a graph read (drive find 2026-08-14)."""
         return self.submit(self._timeline_data())
+
+    async def _list_sessions(self) -> List[Dict[str, Any]]:
+        """Every Session spine on the graph, newest key first: {key, title}.
+        Title prefers the re-registration's display_title over the mint title."""
+        nodes = await load_label_where(self.gx, "Session", [], limit=100000)
+        out: List[Dict[str, Any]] = []
+        for n in nodes:
+            props = dict((n.get("properties") if isinstance(n, dict)
+                          else getattr(n, "properties", None)) or {})
+            key = str(props.get("key") or "")
+            if key:
+                out.append({"key": key,
+                            "title": str(props.get("display_title")
+                                         or props.get("title") or "")})
+        out.sort(key=lambda s: s["key"], reverse=True)
+        return out
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """Blocking session enumeration (the open-session picker gesture)."""
+        return self.call(self._list_sessions())
+
+    def register_session(self, key: str, *, started_at: Optional[float] = None,
+                         title: Optional[str] = None) -> Dict[str, Any]:
+        """Register/update the Session spine node (the mint gesture's write) —
+        journal-mirrored in cg-write's exact arg shape, like every app write
+        (the workbench GraphSession precedent)."""
+        res = self.call(write_verbs.register_session(
+            self.gx, key, started_at=started_at, title=title, actor=ACTOR))
+        if res.get("written"):
+            self._journal("session", {"key": key, "started_at": started_at,
+                                      "title": title, "actor": ACTOR})
+        return res
+
+    def write_session_pointer(self, key: str) -> Optional[str]:
+        """Point `.cjm/current-session` (beside journal_paths[0]) at `key` —
+        the pointer sits with the journal it indexes; None when there is no
+        journal to sit beside (the pointer would not be durable either)."""
+        if not self.journal_paths:
+            return None
+        path = Path(self.journal_paths[0]).parent / "current-session"
+        path.write_text(key)
+        return str(path)
 
     # ---- journaled writes (cg-write's exact arg shape) -------------------
 

@@ -1,8 +1,10 @@
 """Timeline HTML assembly: lanes, affordance links, chips, raw mode, linkify."""
 
+from datetime import timedelta, timezone
+
 from cjm_session_scratchpad_qt.timeline import TimelineEntry
 from cjm_session_scratchpad_qt.timeline_html import (
-    build_timeline_html, lane_filter, linkify_ids)
+    _clock, build_timeline_html, lane_filter, linkify_ids)
 
 THEME = {"content-dim": "#888", "accent": "#36c", "note": "#749",
          "ok": "#2a4", "font-mono-size": 11.0}
@@ -64,3 +66,13 @@ def test_linkify_wraps_known_full_ids_only():
     html = linkify_ids("see 0123456789abcdef0123 and deadbeef", ["0123456789abcdef0123"])
     assert '<a href="jump://0123456789abcdef0123">' in html
     assert 'jump://deadbeef' not in html
+
+
+def test_clock_renders_local_time():
+    # Stored stamps are UTC Z; the clock is display-only local conversion
+    # (tz pinned so the assertion is machine-independent). The 04:25Z specimen
+    # is the user's call-out: it reads 21:25 the previous local evening.
+    pinned = timezone(timedelta(hours=-7))
+    assert _clock("2026-08-22T04:25:10.574Z", tz=pinned) == "21:25:10"
+    assert _clock("", tz=pinned) == ""
+    assert _clock("not-a-stamp", tz=pinned) == "not-a-stamp"

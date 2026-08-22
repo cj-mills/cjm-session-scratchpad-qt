@@ -17,6 +17,7 @@ appearing in any body linkify to jump:// when the target is on the timeline."""
 
 import html as _html
 import re
+from datetime import datetime, tzinfo
 from typing import Dict, List, Optional, Sequence, Set
 
 from .render import render_html
@@ -28,9 +29,16 @@ ROLE_GLYPHS = {"user": "YOU", "assistant": "CLAUDE"}
 LANES = ("all", "composition", "transcript")
 
 
-def _clock(ts: str) -> str:
-    """HH:MM:SS out of an ISO stamp ('' passes through)."""
-    return ts[11:19] if len(ts) >= 19 else ts
+def _clock(ts: str, tz: Optional[tzinfo] = None) -> str:
+    """HH:MM:SS of a stored UTC-Z stamp in LOCAL time ('' and odd shapes pass through).
+
+    Display-only: sorting and identity stay on the raw ISO string (lexicographic
+    — timeline.py's contract); tz overrides the machine zone for tests."""
+    try:
+        local = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+    except ValueError:
+        return ts[11:19] if len(ts) >= 19 else ts
+    return local.strftime("%H:%M:%S")
 
 
 def _glyph(e: TimelineEntry) -> str:
