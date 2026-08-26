@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Set
 from .render import render_html
 from .timeline import timeline_blocks, TimelineEntry
 
-ROLE_GLYPHS = {"user": "YOU", "assistant": "CLAUDE"}
+ROLE_GLYPHS = {"user": "YOU", "assistant": "CLAUDE", "harness": "HARNESS"}
 
 # Lanes: the interleaved default plus each chain alone (671e9b11 pt 1).
 LANES = ("all", "composition", "transcript")
@@ -78,7 +78,10 @@ def card_html(e: TimelineEntry, theme: Dict, mono: str, *, raw: bool,
     accent = theme.get("accent", "#3d63a8")
     note = theme.get("note", "#7d4796")
     ok = theme.get("ok", "#2c7a41")
-    color = note if e.source == "composer" else (accent if e.role == "user" else dim)
+    warn = theme.get("warn", dim)
+    color = (note if e.source == "composer"
+             else warn if e.role == "harness"
+             else accent if e.role == "user" else dim)
     short = e.node_id[:8]
     bits = [f'<b style="color:{color}">{_glyph(e)}</b>',
             _clock(e.timestamp),
