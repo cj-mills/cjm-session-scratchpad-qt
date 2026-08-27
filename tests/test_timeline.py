@@ -75,3 +75,21 @@ def test_blocks_group_consecutive_superseded_runs():
 def test_empty_graph_is_an_empty_timeline():
     assert build_timeline([], [], []) == []
     assert timeline_blocks([]) == []
+
+
+def test_summary_mid_chain_and_tail_tie_keep_prose_on_path():
+    # Thinking summaries (item 6c3a0118) share their carrier record's timestamp
+    # and precede its prose in the chain: the tip must be the latest chain
+    # TAIL (the prose), never the summary; and a summary retro-inserted mid-
+    # chain beside a stale prev->prose edge (finding e358fe97) wins the
+    # predecessor slot by timestamp — edge order and message order decide
+    # nothing, and neither side of the fork goes off-path.
+    ts0, ts1 = "2026-08-26T22:00:00.000Z", "2026-08-26T22:00:03.000Z"
+    summary = msg("s1", "a1#th0", ts1, role="assistant", source="cc-thinking-summary")
+    prose = msg("n2", "a1", ts1, role="assistant")
+    messages = [msg("n1", "u1", ts0), summary, prose]     # summary listed first
+    next_pairs = [("n1", "s1"), ("s1", "n2"), ("n1", "n2")]  # stale edge LAST
+    entries = build_timeline(messages, next_pairs, [])
+    assert [e.node_id for e in entries if e.on_active_path] == ["n1", "s1", "n2"]
+    entries = build_timeline([messages[0], prose, summary], next_pairs, [])
+    assert all(e.on_active_path for e in entries)

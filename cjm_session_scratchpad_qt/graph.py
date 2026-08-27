@@ -223,6 +223,14 @@ class ScratchpadSession(LoopThreadSession):
                           {"session_key": self.session_key,
                            "cc_session_uuid": res.get("cc_session_uuid", ""),
                            "messages": res["new_messages"], "actor": ACTOR})
+        for e in res.get("retracted_edges") or []:
+            # Chain re-link (finding e358fe97): the pull retracted a stale
+            # prev->next edge a mid-chain insert had left behind — journal the
+            # compensating unlink AFTER the pull op (the CLI's exact shape) so
+            # a rebuild converges; independent of new_messages.
+            self._journal("unlink", {"source_id": e["source_id"],
+                                     "target_id": e["target_id"],
+                                     "relation": e["relation"], "actor": ACTOR})
         return res
 
     def pull(self, transcript_dir: str, require_signal: bool = True) -> Dict[str, Any]:

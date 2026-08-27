@@ -76,3 +76,16 @@ def test_clock_renders_local_time():
     assert _clock("2026-08-22T04:25:10.574Z", tz=pinned) == "21:25:10"
     assert _clock("", tz=pinned) == ""
     assert _clock("not-a-stamp", tz=pinned) == "not-a-stamp"
+
+
+def test_thinking_summary_cards_glyph_and_stay_in_transcript_lane():
+    # Harness-persisted thinking summaries (item 6c3a0118): agent-origin
+    # (role=assistant) but faceted cc-thinking-summary — the card glyph reads
+    # SUMMARY (the client's "(summarized)" entry), and the transcript lane
+    # keeps them (they are pulled, not composer-born).
+    e = entry("a1#th0", source="cc-thinking-summary", role="assistant",
+              text="I've confirmed the thread.")
+    html = build_timeline_html([e], THEME, "monospace")
+    assert "SUMMARY" in html and "CLAUDE" not in html
+    assert lane_filter([e], "transcript") == [e]
+    assert lane_filter([e], "composition") == []

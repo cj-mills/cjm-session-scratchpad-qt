@@ -71,8 +71,23 @@ def _active_transcript_ids(
     if not transcript:
         return set()
     ids = {m["id"] for m in transcript}
-    tip = max(transcript, key=lambda m: str(m.get("timestamp") or ""))["id"]
-    pred = {dst: src for src, dst in next_pairs if dst in ids and src in ids}
+    stamp = {m["id"]: str(m.get("timestamp") or "") for m in transcript}
+    pairs = [(s, d) for s, d in next_pairs if d in ids and s in ids]
+    # The tip is the LATEST chain TAIL (no successor), not merely the latest
+    # stamp: a thinking summary shares its carrier record's timestamp and
+    # precedes the prose in the chain (item 6c3a0118), so max-by-stamp could
+    # land on the summary and strand the final prose card off-path.
+    has_succ = {s for s, _ in pairs}
+    tails = [m for m in transcript if m["id"] not in has_succ] or transcript
+    tip = max(tails, key=lambda m: stamp[m["id"]])["id"]
+    # One predecessor per node — but a message inserted mid-chain by a later,
+    # wider extraction (finding e358fe97: the stale prev->prose edge survives
+    # beside prev->insert->prose) leaves TWO inbound edges; take the latest-
+    # stamped candidate (the inserted node), never whichever edge came last.
+    pred: Dict[str, str] = {}
+    for src, dst in pairs:
+        if dst not in pred or stamp[src] > stamp[pred[dst]]:
+            pred[dst] = src
     active = set()
     node = tip
     while node is not None and node not in active:

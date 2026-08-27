@@ -24,6 +24,11 @@ from .render import render_html
 from .timeline import timeline_blocks, TimelineEntry
 
 ROLE_GLYPHS = {"user": "YOU", "assistant": "CLAUDE", "harness": "HARNESS"}
+# Source-faceted glyphs win over the role glyph: editor-born parts, and the
+# harness-persisted thinking summaries (cc-thinking-summary, item 6c3a0118 —
+# agent-origin, role=assistant, but not authored prose; the card reads as
+# the client's "(summarized)" entry).
+SOURCE_GLYPHS = {"composer": "PART", "cc-thinking-summary": "SUMMARY"}
 
 # Lanes: the interleaved default plus each chain alone (671e9b11 pt 1).
 LANES = ("all", "composition", "transcript")
@@ -42,8 +47,8 @@ def _clock(ts: str, tz: Optional[tzinfo] = None) -> str:
 
 
 def _glyph(e: TimelineEntry) -> str:
-    if e.source == "composer":
-        return "PART"
+    if e.source in SOURCE_GLYPHS:
+        return SOURCE_GLYPHS[e.source]
     return ROLE_GLYPHS.get(e.role, e.role.upper() or "?")
 
 
