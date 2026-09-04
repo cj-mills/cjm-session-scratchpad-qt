@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cjm-session-scratchpad-qt"
-version = "0.0.2"
+version = "0.0.3"
 description = "The session scratchpad: composition seat v0 of the seat family (DEC 2a062aff + ea85eab7). A model-agnostic Qt surface for composing LLM session messages in markdown — session-key file naming, one-key edit/rendered toggle with position stability, autosave with atomic writes, wrap-selection formatting on the KeymapRegistry lane. Designed for accretion; born on-graph."
 readme = "README.md"
 requires-python = ">=3.12"
