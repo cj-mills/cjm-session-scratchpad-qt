@@ -2,7 +2,7 @@
 
 One window, one file. A QPlainTextEdit editor (theme body font + measure,
 no line-height merges — undo integrity) and a QTextBrowser rendered view
-(the lane's first real exerciser of document_css/heading-scale/measure on
+(the lane's first real exerciser of document_css/the type scale/measure on
 rich text) behind a one-key toggle that holds the reading position in BOTH
 directions: the renderer's per-block source-line anchors map top-visible
 edit line -> rendered anchor, and rendered top block -> source line. Saving
@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 
 from cjm_substrate_qt_kit.findbar import FindBar
 from cjm_substrate_qt_kit.keymap import KeymapRegistry
-from cjm_substrate_qt_kit.theme import current_theme, make_font, style_text_pane
+from cjm_substrate_qt_kit.theme import current_theme, make_font, on_change, style_text_pane
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QPoint, QSettings, QTimer
 from PySide6.QtGui import QFontDatabase, QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit,
@@ -34,7 +34,7 @@ AUTOSAVE_MS = 1000
 def mono_family(theme: dict) -> str:
     """The rendered code font: the theme's mono token, else the system
     fixed font (the mono token must render well — corpus is code-heavy)."""
-    family = str(theme.get("font-mono-family") or "")
+    family = str(theme.get("font_mono") or "")
     if family:
         return family
     return QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
@@ -128,10 +128,10 @@ class ScratchpadWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.file_label = QLabel()
-        self.file_label.setProperty("role", "content-dim")
+        self.file_label.setProperty("role", "dim")
         self.mode_label = QLabel("EDIT")
         self.save_label = QLabel("")
-        self.save_label.setProperty("role", "content-dim")
+        self.save_label.setProperty("role", "dim")
         bar = QStatusBar()
         bar.addWidget(self.file_label)
         bar.addPermanentWidget(self.mode_label)
@@ -150,12 +150,7 @@ class ScratchpadWindow(QMainWindow):
         self._register_verbs()
         self._build_menus()
         self.refresh_theme()
-        app = self._application()
-        if app is not None:
-            hints = app.styleHints()
-            if hasattr(hints, "colorSchemeChanged"):
-                hints.colorSchemeChanged.connect(
-                    lambda _s: QTimer.singleShot(0, self.refresh_theme))
+        on_change(self._on_theme)   # the kit's one wire: mode / system / OS flips
 
         self._settings = QSettings("cjm", "cjm-session-scratchpad-qt")
         geometry = self._settings.value("geometry")
@@ -392,6 +387,9 @@ class ScratchpadWindow(QMainWindow):
         self.banner.hide()
         self.banner.setText("")
 
+    def _on_theme(self, _theme) -> None:
+        QTimer.singleShot(0, self.refresh_theme)
+
     def refresh_theme(self) -> None:
         """Land typography on both panes: editor gets body font + measure
         width (NO line-height merges — undo integrity), browser gets the
@@ -407,7 +405,7 @@ class ScratchpadWindow(QMainWindow):
             self.editor.document().setDocumentMargin(12.0)
         finally:
             self._loading = was_loading
-        width = metrics.averageCharWidth() * int(theme.get("measure") or 68)
+        width = metrics.averageCharWidth() * int(float(theme.get("measure") or 68))
         chrome = (2 * int(self.editor.document().documentMargin())
                   + self.editor.verticalScrollBar().sizeHint().width() + 8)
         self.editor.setMaximumWidth(width + chrome if self._measure_capped

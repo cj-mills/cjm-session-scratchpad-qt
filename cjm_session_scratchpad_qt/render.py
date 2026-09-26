@@ -54,17 +54,21 @@ def nearest_anchor(anchor_lines: List[int], line: int) -> Optional[int]:
 def render_html(text: str, tokens: Optional[Dict] = None,
                 mono_family: str = "monospace") -> RenderResult:
     """Render markdown to QTextBrowser-ready HTML with per-block source-line
-    anchors. `tokens` is a theme dict (raised / border / accent /
-    font-mono-size are read, all with fallbacks); `mono_family` is the
+    anchors. `tokens` is the live theme vars (surface / divider_solid / accent /
+    fs_mono are read); `mono_family` is the
     resolved code font family."""
     return _Renderer(tokens or {}, mono_family).run(text)
 
 
 class _Renderer:
     def __init__(self, tokens: Dict, mono_family: str):
-        self.raised = tokens.get("raised", "#eeeeee")
-        self.border = tokens.get("border", "#bbbbbb")
-        self.mono_size = float(tokens.get("font-mono-size") or 11.0)
+        # The live theme's vars underneath whatever the caller passes — a
+        # partial dict (tests, the blockquote sub-renderer) still resolves.
+        from cjm_substrate_qt_kit.theme import current_theme
+        t = {**current_theme(), **(tokens or {})}
+        self.raised = t["surface"]
+        self.border = t["divider_solid"]
+        self.mono_size = float(t.get("fs_mono") or 13.0)
         self.mono = mono_family
         self.anchors: List[int] = []
 
@@ -149,8 +153,8 @@ class _Renderer:
         # Inner content re-renders as its own block run; anchors inside would
         # collide with outer numbering, so the quote carries one anchor and
         # the inner renderer's are dropped.
-        sub = _Renderer({"raised": self.raised, "border": self.border,
-                         "font-mono-size": self.mono_size}, self.mono)
+        sub = _Renderer({"surface": self.raised, "divider_solid": self.border,
+                         "fs_mono": self.mono_size}, self.mono)
         inner_html = sub.run("\n".join(inner)).html
         inner_html = re.sub(r'<a name="L\d+"></a>', "", inner_html)
         out.append(f"<blockquote>{self._anchor(start)}{inner_html}</blockquote>")

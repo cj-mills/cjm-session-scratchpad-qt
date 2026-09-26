@@ -74,16 +74,24 @@ def linkify_ids(body_html: str, uuids: Sequence[str]) -> str:
     return body_html
 
 
+def _with_live(theme: Optional[Dict]) -> Dict:
+    """The live theme's vars underneath whatever the caller passes."""
+    from cjm_substrate_qt_kit.theme import current_theme
+    return {**current_theme(), **(theme or {})}
+
+
 def card_html(e: TimelineEntry, theme: Dict, mono: str, *, raw: bool,
               selected: Sequence[str], editing: Optional[str],
               jump_uuids: Sequence[str]) -> str:
     """One message card: anchored header line (identity + affordances) +
-    rendered or raw body."""
-    dim = theme.get("content-dim", "#888888")
-    accent = theme.get("accent", "#3d63a8")
-    note = theme.get("note", "#7d4796")
-    ok = theme.get("ok", "#2c7a41")
-    warn = theme.get("warn", dim)
+    rendered or raw body. `theme` overlays the live theme vars, so a partial
+    dict resolves."""
+    theme = _with_live(theme)
+    dim = theme["dim"]
+    accent = theme["accent"]
+    note = theme["note"]
+    ok = theme["ok"]
+    warn = theme["warn"]
     color = (note if e.source == "composer"
              else warn if e.role == "harness"
              else accent if e.role == "user" else dim)
@@ -105,7 +113,7 @@ def card_html(e: TimelineEntry, theme: Dict, mono: str, *, raw: bool,
               f'<p style="color:{dim}; margin-bottom:2px">'
               + " &nbsp;·&nbsp; ".join(bits) + "</p>")
     if raw:
-        size = float(theme.get("font-mono-size") or 11.0)
+        size = float(theme["fs_mono"])
         body = (f'<pre style="font-family:\'{mono}\'; font-size:{size}pt; '
                 f'margin-left:12px">{_html.escape(e.text)}</pre>')
     else:
@@ -123,7 +131,8 @@ def build_timeline_html(entries: Sequence[TimelineEntry], theme: Dict, mono: str
     superseded transcript runs collapsed behind an expandable chip
     (671e9b11 pt 8 — dead branches stay real, just folded)."""
     expanded = expanded or set()
-    dim = theme.get("content-dim", "#888888")
+    theme = _with_live(theme)
+    dim = theme["dim"]
     visible = lane_filter(entries, lane)
     if not visible:
         return (f'<p style="color:{dim}">no messages yet — the watcher pulls '

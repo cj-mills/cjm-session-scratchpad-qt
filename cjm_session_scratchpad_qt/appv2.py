@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Set
 
 from cjm_substrate_qt_kit.findbar import FindBar
 from cjm_substrate_qt_kit.keymap import KeymapRegistry
-from cjm_substrate_qt_kit.theme import current_theme, make_font, style_text_pane
+from cjm_substrate_qt_kit.theme import current_theme, make_font, on_change, style_text_pane
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (QApplication, QCompleter, QDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -61,7 +61,7 @@ class LanguageBar(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 2, 4, 2)
         label = QLabel("fence language:")
-        label.setProperty("role", "content-dim")
+        label.setProperty("role", "dim")
         self.field = QLineEdit(self)
         completer = QCompleter(FENCE_LANGUAGES, self.field)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -214,12 +214,12 @@ class GraphScratchpadWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.key_label = QLabel(session.session_key)
-        self.key_label.setProperty("role", "content-dim")
+        self.key_label.setProperty("role", "dim")
         self.count_label = QLabel("")
-        self.count_label.setProperty("role", "content-dim")
+        self.count_label.setProperty("role", "dim")
         self.pull_label = QLabel("watching…" if self.is_live else
                                  "browsing — F5 pulls if a transcript remains")
-        self.pull_label.setProperty("role", "content-dim")
+        self.pull_label.setProperty("role", "dim")
         self.mode_label = QLabel("RENDERED · all")
         bar = QStatusBar()
         bar.addWidget(self.key_label)
@@ -232,12 +232,7 @@ class GraphScratchpadWindow(QMainWindow):
         self._register_verbs()
         self._build_menus()
         self.refresh_theme()
-        app = QApplication.instance()
-        if app is not None:
-            hints = app.styleHints()
-            if hasattr(hints, "colorSchemeChanged"):
-                hints.colorSchemeChanged.connect(
-                    lambda _s: QTimer.singleShot(0, self.refresh_theme))
+        on_change(self._on_theme)   # the kit's one wire: mode / system / OS flips
 
         self._settings = QSettings("cjm", "cjm-session-scratchpad-qt")
         geometry = self._settings.value("geometry-v2")
@@ -663,6 +658,9 @@ class GraphScratchpadWindow(QMainWindow):
 
     def show_status(self, text: str) -> None:
         self.statusBar().showMessage(text, 6000)
+
+    def _on_theme(self, _theme) -> None:
+        QTimer.singleShot(0, self.refresh_theme)
 
     def refresh_theme(self) -> None:
         theme = current_theme()
