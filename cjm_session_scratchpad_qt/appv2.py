@@ -12,11 +12,10 @@ that pull-time reconciliation resolves into DERIVED_FROM edges. A QTimer
 drives the transcript watcher (sleep-first mtime poll -> in-process pull;
 quiet polls journal nothing). Every gesture is a KeymapRegistry verb."""
 
-import time
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+from cjm_substrate_qt_kit import sessionkey
 from cjm_substrate_qt_kit.findbar import FindBar
 from cjm_substrate_qt_kit.keymap import KeymapRegistry
 from cjm_substrate_qt_kit.theme import current_theme, make_font, on_change, style_text_pane
@@ -40,11 +39,11 @@ from .watcher import DirWatch
 WATCH_MS = 2500      # transcript poll cadence (sleep-first; a tick is one dir scan)
 FUTURE_MS = 150      # loop-thread future resolution cadence
 
-# The start-ritual boot prompt the mint gesture puts on the clipboard; its tail
-# carries the transcript-mapping signal (prefix-matched by
-# cjm_harness_transcripts.mapping.MINT_SIGNAL).
-MINT_BOOT_PROMPT = ("Resume. Orient from the resident surface; session rituals "
-                    "per the resident notes. New session minted in-scratchpad.")
+# The start-ritual boot prompt the mint gesture puts on the clipboard comes
+# from the kit (sessionkey.boot_prompt — its tail carries the transcript-
+# mapping signal, imported from cjm_harness_transcripts, never a copy); the
+# seat name is what the mapping matches on.
+MINT_SEAT = "scratchpad"
 
 FENCE_LANGUAGES = ["python", "bash", "json", "yaml", "toml", "markdown", "html",
                    "css", "javascript", "typescript", "sql", "diff", "text",
@@ -505,18 +504,16 @@ class GraphScratchpadWindow(QMainWindow):
     def mint_session(self) -> None:
         """Ctrl+Shift+N: mint + register a new session spine, point
         .cjm/current-session at it, adopt it, and put the boot prompt on the
-        clipboard — the workbench Shift+S start ritual, scratchpad-shaped."""
-        try:
+        clipboard — the ONE mint (kit sessionkey.mint, ruling 2bae2cc1 (3)):
+        the repeat guard, adopt-before-the-journaled-write, the atomic
+        pointer, the outgoing key restored on failure all live there; this
+        seat adds the confirm and rebinds its spine to the new key."""
+        if sessionkey.is_repeat(self._live_key):
             # Key-repeat/double-tap debounce (workbench field find 2026-08-20):
             # a just-minted live key means this press is a repeat, not a sitting.
-            age = time.time() - datetime.strptime(
-                self._live_key, "%Y-%m-%d_%H-%M-%S").timestamp()
-            if 0 <= age < 10.0:
-                self.show_status(f"session {self._live_key} just minted — ignored")
-                return
-        except ValueError:
-            pass  # non-timestamp live key (manual/legacy) — no debounce basis
-        key = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.show_status(f"session {self._live_key} just minted — ignored")
+            return
+        key = sessionkey.new_key()
         confirm = QMessageBox.question(
             self, "Mint new session",
             f"Mint session {key} and adopt it as the live sitting?\n\n"
@@ -524,20 +521,15 @@ class GraphScratchpadWindow(QMainWindow):
             f"lands on the clipboard.")
         if confirm != QMessageBox.StandardButton.Yes:
             return
-        prev_live = self._live_key
-        # Adopt BEFORE the journaled write: the registration op must stamp to
-        # its OWN session, never the outgoing one (S-test find 2026-08-14).
-        self.rebind_spine(key, adopt=True)
-        res = self.session.register_session(key, started_at=time.time())
+        res = sessionkey.mint(self.session, self.session.journal_paths)
         if res.get("error"):
-            self.rebind_spine(prev_live, adopt=True)
             self.show_banner(f"session mint failed: {res['error']}", role="warn")
             return
-        pointer = self.session.write_session_pointer(key)
-        QApplication.clipboard().setText(MINT_BOOT_PROMPT)
+        self.rebind_spine(res["key"], adopt=True)
+        QApplication.clipboard().setText(sessionkey.boot_prompt(MINT_SEAT))
         self.show_status(
-            f"session {key} minted + adopted — boot prompt on clipboard"
-            + ("" if pointer else " · ⚠ no journal: pointer NOT written"))
+            f"session {res['key']} minted + adopted — boot prompt on clipboard"
+            + ("" if res.get("pointer") else " · ⚠ no journal: pointer NOT written"))
 
     def open_session_picker(self) -> None:
         """Ctrl+O: choose any Session spine on the graph (recent first)."""

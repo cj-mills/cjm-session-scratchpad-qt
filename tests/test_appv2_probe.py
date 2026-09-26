@@ -38,15 +38,11 @@ class FakeSession:
         self.by_key = {}     # optional per-spine canned messages (rebind swaps)
         self.adopted = []    # adopt=True rebind calls (mint gesture only)
         self.registered = []  # register_session calls (key, started_at, title)
-        self.pointer = None   # last write_session_pointer key
+        self.journal_paths = []  # the mint's pointer lands beside journal_paths[0]
 
     def register_session(self, key, *, started_at=None, title=None):
         self.registered.append((key, started_at, title))
         return {"written": True}
-
-    def write_session_pointer(self, key):
-        self.pointer = key
-        return "/fake/.cjm/current-session"
 
     def rebind(self, session_key, *, adopt=False):
         self.session_key = session_key
@@ -296,6 +292,7 @@ def test_mint_session_registers_adopts_and_arms_clipboard(app, tmp_path, monkeyp
     # signal-bearing boot prompt on the clipboard.
     from cjm_session_scratchpad_qt import appv2
     s, w = make(app, tmp_path)
+    s.journal_paths = [str(tmp_path / ".cjm" / "g.writes.jsonl")]
     monkeypatch.setattr(
         appv2.QMessageBox, "question",
         staticmethod(lambda *a, **k: appv2.QMessageBox.StandardButton.Yes))
@@ -305,7 +302,8 @@ def test_mint_session_registers_adopts_and_arms_clipboard(app, tmp_path, monkeyp
     assert s.registered[0][1] is not None            # started_at rides the op
     assert w._live_key == key and s.session_key == key and w.is_live
     assert s.adopted == [key]                        # CJM_SESSION re-stamp path
-    assert s.pointer == key
+    # the ONE mint (kit sessionkey) wrote the pointer beside the journal
+    assert (tmp_path / ".cjm" / "current-session").read_text() == key
     boot = QApplication.clipboard().text()
     assert "New session minted in-scratchpad" in boot
     from cjm_harness_transcripts.mapping import MINT_SIGNAL
