@@ -90,7 +90,6 @@ The session scratchpad — composition seat v0 of the seat family (DECs 2a062aff
 - `card_html` _function_ — One message card: anchored header line (identity + affordances) +
 - `lane_filter` _function_ — The lane views: composition = composer-born, transcript = pulled.
 - `linkify_ids` _function_ — Wrap full node/source ids appearing as text in jump:// links —
-- `test_clock_renders_local_time` _function_
 
 ### `cjm_session_scratchpad_qt.watcher`
 
@@ -98,4 +97,4 @@ The session scratchpad — composition seat v0 of the seat family (DECs 2a062aff
 
 ## Dependencies
 
-**Depends on:** `PySide6`, `cjm-substrate-qt-kit`
+**Depends on:** `PySide6`, `cjm-context-graph-layer`, `cjm-context-graph-primitives`, `cjm-context-graph-projection`, `cjm-substrate-qt-kit`
