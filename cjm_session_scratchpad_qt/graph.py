@@ -25,7 +25,7 @@ from cjm_context_graph_projection.pull_transcript import (derive_message, edit_m
                                                           mint_pulled_messages, pull_transcript)
 from cjm_context_graph_projection.runtime import DEFAULT_MANIFESTS, open_graph
 from cjm_context_graph_projection.scratchpad_export import export_session_markdown
-from cjm_substrate_qt_kit.loopthread import LoopThreadSession
+from cjm_substrate_qt_kit.loopthread import LoopThreadSession, op_write
 
 # Per-actor stamping (DEC c7c6ce5e; user:workbench is the precedent).
 ACTOR = "user:scratchpad"
@@ -144,6 +144,7 @@ class ScratchpadSession(LoopThreadSession):
         """Blocking session enumeration (the open-session picker gesture)."""
         return self.call(self._list_sessions())
 
+    @op_write
     def register_session(self, key: str, *, started_at: Optional[float] = None,
                          title: Optional[str] = None) -> Dict[str, Any]:
         """Register/update the Session spine node (the mint gesture's write) —
@@ -175,6 +176,7 @@ class ScratchpadSession(LoopThreadSession):
         if self.journal_paths:
             append_write(self.journal_paths[0], verb, args)
 
+    @op_write
     def commit_part(self, text: str, prev_uuid: Optional[str] = None) -> Dict[str, Any]:
         """Mint one committed composition part on the session spine (the same
         source-agnostic mint machinery as the pull — DEC 93e3e881 pt 5)."""
@@ -186,6 +188,7 @@ class ScratchpadSession(LoopThreadSession):
                                             "messages": [payload], "actor": ACTOR})
         return {**res, "payload": payload}
 
+    @op_write
     def edit_part(self, source_uuid: str, text: str) -> Dict[str, Any]:
         """Journaled in-place body edit of a composer part (editability by
         birth class — pulled messages never route here)."""
@@ -195,6 +198,7 @@ class ScratchpadSession(LoopThreadSession):
                                            "text": text, "actor": ACTOR})
         return res
 
+    @op_write
     def record_send(self, sent_uuid: str, part_uuids: List[str]) -> Dict[str, Any]:
         """Land a reconciled compose-send: DERIVED_FROM edges sent -> parts,
         send order on the edge properties."""
@@ -213,6 +217,7 @@ class ScratchpadSession(LoopThreadSession):
 
     # ---- the pull path (watcher-primary; gesture = backfill) -------------
 
+    @op_write
     async def _pull(self, transcript_dir: str, require_signal: bool) -> Dict[str, Any]:
         res = await pull_transcript(self.gx, self.session_key, transcript_dir,
                                     require_signal=require_signal, actor=ACTOR)
