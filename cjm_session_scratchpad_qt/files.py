@@ -15,7 +15,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-SCRATCHPAD_DIR = Path.home() / "Downloads" / "claude-code-scratchpads"
+# The DEFAULT scratchpad dir is the platform's per-user data dir, never a path of one
+# machine (ruling aa00d43c); a deployment names its own with --dir (the launch wrapper's
+# business, 027bbe56).
+SCRATCHPAD_DIR = (Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+                  / "cjm-session-scratchpad-qt")
 KEY_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 
