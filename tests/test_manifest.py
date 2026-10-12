@@ -1,7 +1,7 @@
 """Pending-send manifests: compose, persist, reconcile-by-exact-match."""
 
-from cjm_session_scratchpad_qt.manifest import (
-    PendingSend, compose_text, load_pending, manifest_path, reconcile, save_pending)
+from cjm_session_scratchpad_qt.manifest import (compose_text, load_pending, manifest_path,
+                                                PendingSend, reconcile, save_pending)
 
 
 def test_compose_joins_parts_as_paragraphs():

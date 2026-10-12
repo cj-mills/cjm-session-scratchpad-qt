@@ -3,8 +3,8 @@
 from datetime import timedelta, timezone
 
 from cjm_session_scratchpad_qt.timeline import TimelineEntry
-from cjm_session_scratchpad_qt.timeline_html import (
-    _clock, build_timeline_html, lane_filter, linkify_ids)
+from cjm_session_scratchpad_qt.timeline_html import (_clock, build_timeline_html, lane_filter,
+                                                     linkify_ids)
 
 THEME = {"content-dim": "#888", "accent": "#36c", "note": "#749",
          "ok": "#2a4", "font-mono-size": 11.0}

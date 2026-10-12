@@ -3,9 +3,8 @@ atomic writes."""
 
 from datetime import date
 
-from cjm_session_scratchpad_qt.files import (atomic_write, ensure_file,
-                                             find_session_key, most_recent,
-                                             parse_key_time, resolve_target)
+from cjm_session_scratchpad_qt.files import (atomic_write, ensure_file, find_session_key,
+                                             most_recent, parse_key_time, resolve_target)
 
 KEY = "2026-08-19_10-55-10"
 
