@@ -22,6 +22,7 @@ COMPOSER_SOURCE = "composer"
 @dataclass
 class TimelineEntry:
     """One timeline row, presentation-ready."""
+
     node_id: str          # The Message node id (visible/copyable — 671e9b11 pt 4)
     source_uuid: str      # Capture-source identity (edit/derive verbs key on it)
     role: str             # "user" | "assistant"

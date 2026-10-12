@@ -26,6 +26,7 @@ def msg(nid, uuid, ts, role="user", source="cc-transcript", text="hello"):
 
 class FakeSession:
     """Duck-typed ScratchpadSession: records writes, serves canned reads."""
+
     session_key = KEY
 
     def __init__(self, messages=None, next_pairs=None, derived=None):

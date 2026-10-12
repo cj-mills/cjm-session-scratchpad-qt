@@ -25,6 +25,7 @@ PART_JOINER = "\n\n"
 @dataclass
 class PendingSend:
     """One recorded compose-send awaiting its transcript echo."""
+
     part_uuids: List[str]            # Composition-part uuids, send order
     text: str                        # The exact concatenation copied out
     created_at: float = field(default_factory=time.time)
