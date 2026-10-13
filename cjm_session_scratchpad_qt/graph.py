@@ -93,7 +93,7 @@ class ScratchpadSession(LoopThreadSession):
         + the NEXT and DERIVED_FROM edges among them."""
         nodes = await load_label_where(
             self.gx, "Message",
-            [PropertyPredicate("session_key", "eq", self.session_key)], limit=100000)
+            [PropertyPredicate("session_key", "eq", self.session_key)])
         messages: List[Dict] = []
         for n in nodes:
             props = dict((n.get("properties") if isinstance(n, dict)
@@ -127,7 +127,7 @@ class ScratchpadSession(LoopThreadSession):
     async def _list_sessions(self) -> List[Dict[str, Any]]:
         """Every Session spine on the graph, newest key first: {key, title}.
         Title prefers the re-registration's display_title over the mint title."""
-        nodes = await load_label_where(self.gx, "Session", [], limit=100000)
+        nodes = await load_label_where(self.gx, "Session", [])  # every session, uncapped (a107e2f3)
         out: List[Dict[str, Any]] = []
         for n in nodes:
             props = dict((n.get("properties") if isinstance(n, dict)
