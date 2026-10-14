@@ -53,6 +53,7 @@ The session scratchpad — composition seat v0 of the seat family (DECs 2a062aff
 ### `cjm_session_scratchpad_qt.graph`
 
 - `ScratchpadSession` _class_ — Sync facade over the projection layer for ONE session's scratchpad:
+- `bench_gestures` _function_ — The scratchpad's canonical gestures for the scale harness (design detail 4389a579): its
 - `default_transcript_dir` _function_ — The harness transcript dir for a project: `~/.claude/projects/<slug>`,
 - `part_payload` _function_ — A composer part's mint/journal payload: composer-minted uuid (the
 

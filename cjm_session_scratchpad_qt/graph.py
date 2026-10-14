@@ -18,13 +18,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from cjm_context_graph_layer.ops import graph_task
 from cjm_context_graph_primitives.journal import append_write
 from cjm_context_graph_primitives.query import EdgeQuery, PropertyPredicate
-from cjm_context_graph_projection import write as write_verbs
+from cjm_context_graph_projection import perf, write as write_verbs
 from cjm_context_graph_projection.factlayer import load_label_where
 from cjm_context_graph_projection.pull_transcript import (derive_message, edit_message,
                                                           MESSAGE_SOURCE_COMPOSER,
                                                           mint_pulled_messages, pull_transcript)
 from cjm_context_graph_projection.runtime import DEFAULT_MANIFESTS, open_graph
 from cjm_context_graph_projection.scratchpad_export import export_session_markdown
+from cjm_substrate_qt_kit.gesturebench import ladder
 from cjm_substrate_qt_kit.loopthread import LoopThreadSession, op_write
 
 # Per-actor stamping (DEC c7c6ce5e; user:workbench is the precedent).
@@ -52,9 +53,13 @@ class ScratchpadSession(LoopThreadSession):
     """Sync facade over the projection layer for ONE session's scratchpad:
     start() opens the graph and adopts the session key (CJM_SESSION — the app
     knows its key by construction, so every journaled write is stamped),
-    the fetch/commit methods block the caller, close() tears down."""
+    the fetch/commit methods block the caller, close() tears down. Every read and
+    write is a measured gesture (the kit's seam, design detail 4389a579) in the
+    graph's timings ledger; the watcher's timeline refresh and pull are polls."""
 
     thread_name = "scratchpad-graph"
+    app = "scratchpad"
+    polls = frozenset({"timeline_tick", "pull_tick"})
 
     def __init__(self, graph_db_path: str, session_key: str,
                  manifests_dir: Optional[str] = None,
@@ -69,13 +74,20 @@ class ScratchpadSession(LoopThreadSession):
 
     async def _open(self):
         self._stack = AsyncExitStack()
-        return await self._stack.enter_async_context(
+        self.gx = await self._stack.enter_async_context(
             open_graph(self.graph_db_path, self.manifests_dir))
+        await self.measure_into(self.graph_db_path)
+        return self.gx
+
+    async def measure_covariates(self) -> Optional[Dict[str, Any]]:
+        """The growth covariates beside the gestures (design detail 4389a579): the
+        projection's measure -- the store, the repos, the writes journal."""
+        return await perf.measure_covariates(self.gx, dict(zip(("writes",), self.journal_paths)))
 
     def start(self) -> None:
         super().start()
         os.environ["CJM_SESSION"] = self.session_key  # journal appends stamp this key
-        self.gx = self.call(self._open())
+        self.gx = self.call(self._open(), gesture="open_graph")
 
     def rebind(self, session_key: str, *, adopt: bool = False) -> None:
         """Retarget the spine this seat reads/writes (the open-past-session
@@ -122,7 +134,7 @@ class ScratchpadSession(LoopThreadSession):
     def timeline_data_async(self):
         """Non-blocking read for watcher-cadence refresh — the Qt shell must
         never block its paint thread on a graph read (drive find 2026-08-14)."""
-        return self.submit(self._timeline_data())
+        return self.submit(self._timeline_data(), gesture="timeline_tick")
 
     async def _list_sessions(self) -> List[Dict[str, Any]]:
         """Every Session spine on the graph, newest key first: {key, title}.
@@ -244,8 +256,26 @@ class ScratchpadSession(LoopThreadSession):
 
     def pull_async(self, transcript_dir: str, require_signal: bool = True):
         """Non-blocking pull for the watcher tick; resolves to the pull result."""
-        return self.submit(self._pull(transcript_dir, require_signal))
+        return self.submit(self._pull(transcript_dir, require_signal), gesture="pull_tick")
 
     async def on_close(self) -> None:
         if self._stack is not None:
             await self._stack.aclose()
+
+
+def bench_gestures(
+    params: Dict[str, Any],  # db, manifests_dir, journals; the lane's session
+) -> List[str]:  # The gestures run, in order
+    """The scratchpad's canonical gestures for the scale harness (design detail 4389a579): its
+    read ladder on one graph -- a session's timeline and the session picker's list -- each
+    measured by the session's own seam."""
+    journals = params.get("journals") or {}
+    s = ScratchpadSession(params["db"], params["session"],
+                          manifests_dir=params.get("manifests_dir"),
+                          journal_paths=[p for p in (journals.get("writes"),) if p],
+                          timeout=float(params.get("timeout_s", 3600)))
+    s.start()
+    try:
+        return ladder([("timeline_data", s.timeline_data), ("list_sessions", s.list_sessions)])
+    finally:
+        s.close()
