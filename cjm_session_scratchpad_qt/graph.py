@@ -1,11 +1,13 @@
 """One open graph behind the scratchpad — the workbench GraphSession pattern
 wholesale (DEC 93e3e881): open_graph ONCE behind a private asyncio loop
-thread, sync blocking fetches for the Qt widgets, writes journal-first in
-cg-write's EXACT arg shape as actor `user:scratchpad` so replay/rebuild treats
-app writes and cg-writes identically. Reads are ambient for free (open_graph
+thread, sync blocking fetches for the Qt widgets, writes through the CLI's own
+landing functions inside its unit of work (ruling d2d05e78: the writes
+journal's lock and heal, plan -> append -> apply) as actor `user:scratchpad`,
+so an app write and a cg-write are one code path. Reads are ambient for free (open_graph
 declares graph-storage ambient — timeline reads at UI cadence produce zero
-success-accounting rows), and the pull watcher calls pull_transcript()
-in-process: nothing new = nothing journaled, the watcher-cadence guarantee."""
+success-accounting rows), and the pull watcher reads the transcript (read_transcript)
+and lands it (land_pull) in-process: nothing new = nothing journaled, the
+watcher-cadence guarantee."""
 
 import os
 import re
@@ -16,15 +18,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from cjm_context_graph_layer.ops import graph_task
-from cjm_context_graph_primitives.journal import append_write
 from cjm_context_graph_primitives.query import EdgeQuery, PropertyPredicate
 from cjm_context_graph_projection import perf, write as write_verbs
 from cjm_context_graph_projection.factlayer import load_label_where
-from cjm_context_graph_projection.pull_transcript import (derive_message, edit_message,
-                                                          MESSAGE_SOURCE_COMPOSER,
-                                                          mint_pulled_messages, pull_transcript)
+from cjm_context_graph_projection.pull_transcript import (land_derive_message, land_edit_message,
+                                                          land_mint_messages, land_pull,
+                                                          MESSAGE_SOURCE_COMPOSER, read_transcript)
 from cjm_context_graph_projection.runtime import DEFAULT_MANIFESTS, open_graph
 from cjm_context_graph_projection.scratchpad_export import export_session_markdown
+from cjm_context_graph_projection.writes import write_window
 from cjm_substrate_qt_kit.gesturebench import ladder
 from cjm_substrate_qt_kit.loopthread import LoopThreadSession, op_write
 
@@ -64,11 +66,10 @@ class ScratchpadSession(LoopThreadSession):
     def __init__(self, graph_db_path: str, session_key: str,
                  manifests_dir: Optional[str] = None,
                  journal_paths: Optional[List[str]] = None, timeout: float = 60.0):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=timeout, journal_paths=journal_paths)
         self.graph_db_path = graph_db_path
         self.session_key = session_key
         self.manifests_dir = manifests_dir or DEFAULT_MANIFESTS
-        self.journal_paths = list(journal_paths or [])
         self.gx = None
         self._stack: Optional[AsyncExitStack] = None
 
@@ -156,18 +157,20 @@ class ScratchpadSession(LoopThreadSession):
         """Blocking session enumeration (the open-session picker gesture)."""
         return self.call(self._list_sessions())
 
-    @op_write
     def register_session(self, key: str, *, started_at: Optional[float] = None,
                          title: Optional[str] = None) -> Dict[str, Any]:
         """Register/update the Session spine node (the mint gesture's write) —
-        journal-mirrored in cg-write's exact arg shape, like every app write
-        (the workbench GraphSession precedent)."""
-        res = self.call(write_verbs.register_session(
-            self.gx, key, started_at=started_at, title=title, actor=ACTOR))
-        if res.get("written"):
-            self._journal("session", {"key": key, "started_at": started_at,
-                                      "title": title, "actor": ACTOR})
-        return res
+        `session`'s landing function, like every app write (the workbench
+        GraphSession precedent)."""
+        return self.call(self._register_session(key, started_at, title),
+                         gesture="register_session")
+
+    @op_write
+    async def _register_session(self, key: str, started_at: Optional[float],
+                                title: Optional[str]) -> Dict[str, Any]:
+        async with self._writes() as writes:
+            return await write_verbs.land_session(self.gx, writes, key, started_at=started_at,
+                                                  title=title, actor=ACTOR)
 
     def write_session_pointer(self, key: str) -> Optional[str]:
         """Point `.cjm/current-session` (beside journal_paths[0]) at `key` —
@@ -179,47 +182,48 @@ class ScratchpadSession(LoopThreadSession):
         path.write_text(key)
         return str(path)
 
-    # ---- journaled writes (cg-write's exact arg shape) -------------------
+    # ---- journaled writes (ruling d2d05e78) -------------------------------
+    # Each write gesture is ONE coroutine inside the unit of work: the writes journal's lock and
+    # heal, the verb's landing function -- the one the CLI's branch calls -- planning each op,
+    # appending it, applying it through the replay's applier, and the live write window's
+    # site-link step before the lock is released.
 
-    def _journal(self, verb: str, args: Dict[str, Any]) -> None:
-        """Mirror a LANDED write into the writes journal (journal_paths[0]) —
-        an unjournaled write is lost on the next rebuild (the db is a
-        projection)."""
-        if self.journal_paths:
-            append_write(self.journal_paths[0], verb, args)
+    def _writes(self):
+        return write_window(self.gx, self.journal_paths[0] if self.journal_paths else None)
 
-    @op_write
     def commit_part(self, text: str, prev_uuid: Optional[str] = None) -> Dict[str, Any]:
         """Mint one committed composition part on the session spine (the same
-        source-agnostic mint machinery as the pull — DEC 93e3e881 pt 5)."""
+        source-agnostic mint machinery as the pull — DEC 93e3e881 pt 5); the
+        part's uuid is minted here, before the plan, so the op carries it."""
         payload = part_payload(text, prev_uuid)
-        res = self.call(mint_pulled_messages(self.gx, self.session_key, "",
-                                             [payload], actor=ACTOR))
-        if res.get("written"):
-            self._journal("mint-messages", {"session_key": self.session_key,
-                                            "messages": [payload], "actor": ACTOR})
+        res = self.call(self._commit_part(payload), gesture="commit_part")
         return {**res, "payload": payload}
 
     @op_write
+    async def _commit_part(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        async with self._writes() as writes:
+            return await land_mint_messages(self.gx, writes, self.session_key, [payload],
+                                            actor=ACTOR)
+
     def edit_part(self, source_uuid: str, text: str) -> Dict[str, Any]:
         """Journaled in-place body edit of a composer part (editability by
         birth class — pulled messages never route here)."""
-        res = self.call(edit_message(self.gx, source_uuid, text, actor=ACTOR))
-        if res.get("written"):
-            self._journal("edit-message", {"source_uuid": source_uuid,
-                                           "text": text, "actor": ACTOR})
-        return res
+        return self.call(self._edit_part(source_uuid, text), gesture="edit_part")
 
     @op_write
+    async def _edit_part(self, source_uuid: str, text: str) -> Dict[str, Any]:
+        async with self._writes() as writes:
+            return await land_edit_message(self.gx, writes, source_uuid, text, actor=ACTOR)
+
     def record_send(self, sent_uuid: str, part_uuids: List[str]) -> Dict[str, Any]:
         """Land a reconciled compose-send: DERIVED_FROM edges sent -> parts,
         send order on the edge properties."""
-        res = self.call(derive_message(self.gx, sent_uuid, part_uuids, actor=ACTOR))
-        if res.get("written"):
-            self._journal("derive-message", {"sent_uuid": sent_uuid,
-                                             "part_uuids": list(part_uuids),
-                                             "actor": ACTOR})
-        return res
+        return self.call(self._record_send(sent_uuid, list(part_uuids)), gesture="record_send")
+
+    @op_write
+    async def _record_send(self, sent_uuid: str, part_uuids: List[str]) -> Dict[str, Any]:
+        async with self._writes() as writes:
+            return await land_derive_message(self.gx, writes, sent_uuid, part_uuids, actor=ACTOR)
 
     def export_markdown(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """The exporter lens in-process (item 5ab24c57): the session's message
@@ -231,24 +235,15 @@ class ScratchpadSession(LoopThreadSession):
 
     @op_write
     async def _pull(self, transcript_dir: str, require_signal: bool) -> Dict[str, Any]:
-        res = await pull_transcript(self.gx, self.session_key, transcript_dir,
-                                    require_signal=require_signal, actor=ACTOR)
-        if not res.get("error") and res.get("new_messages"):
-            # The CLI's exact journal shape (self-contained replay payload);
-            # a quiet pull journals NOTHING — the watcher-cadence guarantee.
-            self._journal("pull-transcript",
-                          {"session_key": self.session_key,
-                           "cc_session_uuid": res.get("cc_session_uuid", ""),
-                           "messages": res["new_messages"], "actor": ACTOR})
-        for e in res.get("retracted_edges") or []:
-            # Chain re-link (finding e358fe97): the pull retracted a stale
-            # prev->next edge a mid-chain insert had left behind — journal the
-            # compensating unlink AFTER the pull op (the CLI's exact shape) so
-            # a rebuild converges; independent of new_messages.
-            self._journal("unlink", {"source_id": e["source_id"],
-                                     "target_id": e["target_id"],
-                                     "relation": e["relation"], "actor": ACTOR})
-        return res
+        # The transcript is read OUTSIDE the unit of work (file work only); the lock is taken
+        # for the plan and its writes alone. A quiet pull journals NOTHING -- the
+        # watcher-cadence guarantee; a chain re-link's unlinks follow the pull op (finding
+        # e358fe97), each planned, appended and applied.
+        found = read_transcript(self.session_key, transcript_dir, require_signal=require_signal)
+        if found.get("error"):
+            return found
+        async with self._writes() as writes:
+            return await land_pull(self.gx, writes, found, actor=ACTOR)
 
     def pull(self, transcript_dir: str, require_signal: bool = True) -> Dict[str, Any]:
         """Blocking pull (the in-session backfill gesture)."""
